@@ -82,3 +82,5 @@ sources:
   overpass: "https://overpass-api.de/api/interpreter"
   insee_population: "https://www.insee.fr/fr/statistiques/3698339"
   sitadel_dataset: "689c42fa521ccf80ce954f83"
+  # Fichier « autorisations d'urbanisme créant des locaux non résidentiels » (SDES, plateforme DiDo).
+  sitadel_locaux_csv: "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/f8f0700f-806c-40a7-83b1-f21cf507e7c4/csv"

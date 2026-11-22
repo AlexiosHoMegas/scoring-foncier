@@ -16,7 +16,12 @@ from .. import CRS_METRIQUE
 from ..http import entete, get_json, telecharger
 
 log = logging.getLogger(__name__)
-MOTIF_SURFACE = re.compile(r"^SURF.*(CRE|NOUV)", re.I)
+# Surface de plancher créée, toutes destinations non résidentielles confondues.
+SURFACE_TOTALE = "SURF_LOC_CREEE"
+# Repli si la colonne totale disparaît : somme des destinations non résidentielles.
+SURFACES_DETAIL = ["SURF_COM_CREEE", "SURF_BUR_CREEE", "SURF_IND_CREEE", "SURF_ENT_CREEE",
+                   "SURF_HEB_CREEE", "SURF_PUB_CREEE", "SURF_AGR_CREEE"]
+REQUISES = {"DEP_CODE", "COMM", "DATE_REELLE_AUTORISATION", "SEC_CADASTRE1", "NUM_CADASTRE1"}
 
 
 def _colonnes(url: str) -> tuple[list[str], str]:
@@ -25,21 +30,32 @@ def _colonnes(url: str) -> tuple[list[str], str]:
     return [c.strip().strip('"') for c in premiere.split(sep)], sep
 
 
+def _candidates(cfg: dict) -> list[str]:
+    """URL configurée d'abord, puis la ressource « locaux non résidentiels » du jeu data.gouv."""
+    urls = [u for u in [cfg["sources"].get("sitadel_locaux_csv")] if u]
+    try:
+        meta = get_json(f"{cfg['sources']['datagouv_api']}/datasets/{cfg['sources']['sitadel_dataset']}/",
+                        cache=False)
+        for r in meta.get("resources", []):
+            titre = (r.get("title") or "").lower()
+            if str(r.get("format", "")).lower() == "csv" and "locaux" in titre and r["url"] not in urls:
+                urls.append(r["url"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("API data.gouv indisponible pour Sitadel (%s)", e)
+    return urls
+
+
 def _trouver_ressource(cfg: dict):
-    meta = get_json(f"{cfg['sources']['datagouv_api']}/datasets/{cfg['sources']['sitadel_dataset']}/",
-                    cache=False)
-    for r in meta.get("resources", []):
-        if str(r.get("format", "")).lower() != "csv":
+    for url in _candidates(cfg):
+        cols, sep = _colonnes(url)
+        if not REQUISES.issubset(cols):
+            log.warning("Sitadel : colonnes inattendues pour %s : %s", url, cols[:40])
             continue
-        titre = (r.get("title") or "").lower()
-        if "logement" in titre or "démol" in titre or "amenag" in titre or "aménag" in titre:
-            continue
-        cols, sep = _colonnes(r["url"])
-        surfaces = [c for c in cols if MOTIF_SURFACE.match(c) and "HAB" not in c.upper()]
-        if "NUM_PC" in cols and surfaces and "DATE_REELLE_AUTORISATION" in cols:
-            log.info("Sitadel : ressource %s, colonnes de surface %s", r.get("title"), surfaces)
-            return r["url"], sep, surfaces
-    raise ValueError("Fichier Sitadel des locaux introuvable dans le jeu de données")
+        surfaces = [SURFACE_TOTALE] if SURFACE_TOTALE in cols else [c for c in SURFACES_DETAIL if c in cols]
+        if surfaces:
+            log.info("Sitadel : %s, surfaces %s", url, surfaces)
+            return url, sep, surfaces
+    raise ValueError("Fichier Sitadel des locaux introuvable ou de format inattendu")
 
 
 def _id_parcelle(df: pd.DataFrame) -> pd.Series:
@@ -56,7 +72,8 @@ def permis_locaux(cfg: dict, deps: list[str], parcelles: gpd.GeoDataFrame,
     morceaux = []
     for bloc in pd.read_csv(telecharger(url, ".csv"), sep=sep, dtype=str, usecols=lambda c: c in utiles,
                             chunksize=200_000, encoding="utf-8-sig"):
-        bloc = bloc[bloc["DEP_CODE"].isin(deps) & (bloc["DATE_REELLE_AUTORISATION"] >= debut)]
+        dates = bloc["DATE_REELLE_AUTORISATION"].fillna("")
+        bloc = bloc[bloc["DEP_CODE"].isin(deps) & dates.str.match(r"^\d{4}-\d{2}") & (dates >= debut)]
         if not bloc.empty:
             morceaux.append(bloc)
     if not morceaux:

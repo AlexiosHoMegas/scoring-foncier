@@ -172,3 +172,23 @@ def test_identifiant_parcelle_sitadel():
     from foncier.sources.sitadel import _id_parcelle
     df = pd.DataFrame({"COMM": ["34172", "34022"], "SEC_CADASTRE1": ["AB", "C"], "NUM_CADASTRE1": ["12", "0345"]})
     assert list(_id_parcelle(df)) == ["34172000AB0012", "340220000C0345"]
+
+
+def test_sitadel_lit_le_format_dido(tmp_path, monkeypatch, cfg, donnees):
+    """Colonnes réelles du fichier DiDo (dictionnaire SDES) : NUM_DAU, SURF_LOC_CREEE, etc."""
+    from foncier.sources import sitadel
+    p0 = donnees.parcelles.iloc[0]
+    entete = "REG_CODE;DEP_CODE;COMM;TYPE_DAU;NUM_DAU;DATE_REELLE_AUTORISATION;SEC_CADASTRE1;NUM_CADASTRE1;SURF_BUR_CREEE;SURF_LOC_CREEE"
+    sec, num = p0["id"][8:10], p0["id"][10:]
+    lignes = [entete,
+              f"76;99;{p0['insee']};PC;X1;2025-03-01;{sec};{num};800;1200",
+              f"76;99;{p0['insee']};PC;X2;2010-03-01;{sec};{num};0;5000",   # trop ancien
+              "76;12;12001;PC;X3;2025-03-01;AB;1;0;900"]                       # autre département
+    f = tmp_path / "locaux.csv"
+    f.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sitadel, "_candidates", lambda cfg: ["fichier"])
+    monkeypatch.setattr(sitadel, "entete", lambda url, n: f.read_bytes())
+    monkeypatch.setattr(sitadel, "telecharger", lambda url, suffixe="": f)
+    g = sitadel.permis_locaux(cfg, ["99"], donnees.parcelles, donnees.communes)
+    assert list(g["surface_m2"]) == [1200]
+    assert g.geometry.iloc[0].distance(p0.geometry.representative_point()) < 1
