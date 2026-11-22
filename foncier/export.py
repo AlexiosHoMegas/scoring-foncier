@@ -26,7 +26,7 @@ PROPRIETES = [
     "prix_m2_median", "prix_nb_ventes", "trafic_tmja", "trafic_source", "dist_echangeur_km",
     "dist_centre_km", "croissance_pop_an_pct", "locaux_autorises_m2", "budget_zan_consomme_pct",
     "prix_estime", "prix_estime_bas", "prix_estime_haut", "proprietaire", "forme_juridique",
-    "robustesse", "drapeaux",
+    "robustesse", "mode", "prix_base", "note_ouverture", "dist_zone_urbaine_m", "drapeaux",
 ]
 
 
@@ -54,7 +54,9 @@ def ecrire(resultat: gpd.GeoDataFrame, parcelles_total: int, exclusions: pd.Seri
         "exclusions": {str(k): int(v) for k, v in exclusions.items()},
         "poids": cfg["poids"],
         "profils": {"general": {"nom": "Général", "poids": cfg["poids"]},
-                    **{k: {"nom": v["nom"], "poids": v["poids"]} for k, v in cfg.get("profils", {}).items()}},
+                    **{k: {"nom": v["nom"], "poids": v["poids"], "mode": v.get("mode", "constructible")}
+                       for k, v in cfg.get("profils", {}).items()}},
+        "plafond_publie": cfg.get("export", {}).get("prix_max_publie"),
         "nouvelles_constructibles": int(resultat.get("nouveau_constructible", pd.Series(dtype=bool)).sum()),
         "penalites": cfg.get("penalites", {}),
         "sources": d.sources,

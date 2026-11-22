@@ -14,9 +14,13 @@ filtres:
   # Types de zone CNIG gardés : U (urbaine) et AUc (à urbaniser, ouverte).
   # AUs (à urbaniser bloquée) demande une modification du PLU : exclue.
   typezones_autorisees: ["U", "AUc"]
-  surface_min_m2: 2000
+  # Mode « pari long terme » : zones prévues pour être urbanisées plus tard, encore bloquées.
+  typezones_pari: ["AUs"]
+  surface_min_m2: 500
   # Distance maximale à une voie carrossable (m).
   acces_route_max_m: 50
+  # Les zones AUs sont souvent encore desservies par des chemins : tolérance plus large.
+  acces_route_max_pari_m: 300
   # Part maximale de la parcelle couverte par du bâti.
   emprise_batie_max: 0.10
   # Prescriptions CNIG qui excluent une parcelle si elles en couvrent plus de la moitié :
@@ -49,7 +53,11 @@ agents:
     ventes_min: 5
     annees: 3
     # Seules les ventes situées dans ces zones servent de comparaison (pas de terres agricoles).
-    typezones_comparables: ["U", "AUc", "AUs"]
+    typezones_comparables: ["U", "AUc"]
+    # Pour les parcelles en pari : ventes en zone AUs d'abord, sinon en zone agricole ou naturelle
+    # (l'estimation est alors basse, signalée comme telle).
+    typezones_comparables_pari: ["AUs"]
+    typezones_comparables_pari_secours: ["AUs", "A", "N"]
   trafic:
     rayon_m: 300
     tmja_min: 500
@@ -72,6 +80,11 @@ agents:
     rayon_m: 3000
     annees: 5
   rarete: {}
+  ouverture:
+    # Une zone AUs collée à la ville a plus de chances d'être ouverte en premier.
+    distance_ideale_m: 0
+    distance_max_m: 800
+    part_contiguite: 0.6
 
 robustesse:
   tirages: 500
@@ -88,6 +101,7 @@ poids:
   dynamique: 12
   developpement: 10
   rarete: 10
+  ouverture: 0
 
 profils:
   entrepot:
@@ -99,6 +113,15 @@ profils:
   commerce:
     nom: "Local commercial"
     poids: { prix: 15, trafic: 35, accessibilite: 10, surface: 10, dynamique: 20, developpement: 5, rarete: 5 }
+  pari:
+    nom: "Pari long terme (zones AUs)"
+    mode: pari
+    poids: { prix: 30, trafic: 5, accessibilite: 10, surface: 5, dynamique: 15, developpement: 5, rarete: 0, ouverture: 30 }
+
+# Pour garder la carte légère : on ne publie pas les parcelles dont l'estimation basse
+# dépasse ce montant (celles sans estimation restent).
+export:
+  prix_max_publie: 400000
 
 penalites:
   residentiel: 0.85

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 
 from . import agents, config, demo, export, filtres, score
 
@@ -30,9 +31,25 @@ def executer(cfg: dict, sortie: Path, mode_demo: bool = False) -> dict:
 
     notes = agents.executer(candidats, d, cfg)
     resultat = gpd.GeoDataFrame(candidats.join(notes), geometry="geometry", crs=candidats.crs)
+    # Chaque mode est noté avec ses poids par défaut : « général » ou « pari long terme ».
+    pari = candidats["mode"] == "pari"
+    poids_pari = cfg.get("profils", {}).get("pari", {}).get("poids", cfg["poids"])
     resultat["score"] = score.calculer(notes, candidats, cfg)
-    resultat["classe"] = resultat["score"].map(score.classe)
     resultat["robustesse"] = score.robustesse(notes, candidats, cfg)
+    if pari.any():
+        resultat.loc[pari, "score"] = score.calculer(notes[pari], candidats[pari], cfg, poids_pari)
+        resultat.loc[pari, "robustesse"] = score.robustesse(notes[pari], candidats[pari],
+                                                            {**cfg, "poids": poids_pari})
+        resultat.loc[~pari, "robustesse"] = score.robustesse(notes[~pari], candidats[~pari], cfg)
+    resultat["classe"] = resultat["score"].map(score.classe)
+
+    # Carte légère : on ne publie pas les terrains dont même l'estimation basse est hors de portée.
+    plafond = cfg.get("export", {}).get("prix_max_publie")
+    if plafond:
+        trop_chers = resultat["prix_estime_bas"] > plafond
+        log.info("Non publiées (estimation basse > %s €) : %d", plafond, int(trop_chers.sum()))
+        resultat = resultat[~trop_chers]
+        exclusions = pd.concat([exclusions, pd.Series({"prix hors plafond publié": int(trop_chers.sum())})])
 
     meta = export.ecrire(resultat, len(tout), exclusions, d, cfg, sortie)
     export.ecrire_zonage(tout, cfg, sortie)

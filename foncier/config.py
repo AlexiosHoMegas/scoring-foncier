@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-AGENTS = ["prix", "trafic", "accessibilite", "surface", "dynamique", "developpement", "rarete"]
+AGENTS = ["prix", "trafic", "accessibilite", "surface", "dynamique", "developpement", "rarete", "ouverture"]
 
 
 def charger(chemin: str | Path) -> dict:

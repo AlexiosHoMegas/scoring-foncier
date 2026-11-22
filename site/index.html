@@ -116,6 +116,7 @@
     <div data-vue="classement">
       <div class="filtres">
         <label class="large">Usage visé<select id="profil"></select></label>
+        <label>Budget max (€)<input id="budgetMax" type="number" min="0" step="10000" placeholder="aucun" inputmode="numeric"></label>
         <label>Score minimum<input id="scoreMin" type="number" min="0" max="100" value="0" inputmode="numeric"></label>
         <label>Surface min. (m²)<input id="surfaceMin" type="number" min="0" step="500" value="0" inputmode="numeric"></label>
         <label class="large case"><input id="nouvelles" type="checkbox"> Seulement les parcelles devenues constructibles</label>
@@ -157,7 +158,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const AGENTS = [
     ["prix", "Prix"], ["trafic", "Trafic"], ["accessibilite", "Accessibilité"],
     ["surface", "Surface"], ["dynamique", "Dynamique"], ["developpement", "Développement"],
-    ["rarete", "Rareté"],
+    ["rarete", "Rareté"], ["ouverture", "Chances d'ouverture"],
   ];
   const CLASSES = [
     { min: 75, nom: "acheter", couleur: "--c-acheter" },
@@ -180,7 +181,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const echapper = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   let meta, donnees, profils, profil = "general", poids, carte, selection = null;
-  const sauver = () => memoire.ecrire({ profil, poids });
+  const sauver = () => memoire.ecrire({ profil, poids, budget: $("budgetMax").value });
 
   const memoire = {
     lire() { try { return JSON.parse(localStorage.getItem("poids-foncier") || "null"); } catch { return null; } },
@@ -199,9 +200,14 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
       p.score_dyn = Math.round(s * 10) / 10;
     }
     const sMin = +$("scoreMin").value || 0, surfMin = +$("surfaceMin").value || 0, nouv = $("nouvelles").checked;
+    const budget = +$("budgetMax").value || 0, mode = profils[profil].mode || "constructible";
     const visibles = { type: "FeatureCollection",
-      features: donnees.features.filter((f) => f.properties.score_dyn >= sMin && f.properties.surface_m2 >= surfMin
-        && (!nouv || (f.properties.drapeaux || []).includes("devenue constructible"))) };
+      features: donnees.features.filter((f) => {
+        const p = f.properties;
+        return (p.mode || "constructible") === mode && p.score_dyn >= sMin && p.surface_m2 >= surfMin
+          && (!budget || (p.prix_estime != null && p.prix_estime <= budget))
+          && (!nouv || (p.drapeaux || []).includes("devenue constructible"));
+      }) };
     carte.getSource("parcelles")?.setData(visibles);
     lister(visibles.features);
     if (selection) afficherFiche(selection);
@@ -245,8 +251,9 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
         return `<div><span>${n}</span><span class="jauge"><span style="width:${v}%"></span></span><em>${Math.round(v)}</em></div>`;
       }).join("")}</div>
       <div class="estimation">${q.prix_estime != null
-        ? `Prix estimé <b>≈ ${euros(q.prix_estime)}</b><br><span class="note">Fourchette ${euros(q.prix_estime_bas)} à ${euros(q.prix_estime_haut)}, d'après ${q.prix_nb_ventes} ventes de terrains constructibles proches (${dec(q.prix_m2_median)} €/m² médian). Ordre de grandeur, pas une estimation de notaire.</span>`
-        : `<span class="note">Prix non estimable : moins de 5 ventes de terrains constructibles à proximité.</span>`}</div>
+        ? `Prix estimé <b>≈ ${euros(q.prix_estime)}</b><br><span class="note">Fourchette ${euros(q.prix_estime_bas)} à ${euros(q.prix_estime_haut)}, d'après ${q.prix_nb_ventes} ventes de ${echapper(q.prix_base || "terrains")} proches (${dec(q.prix_m2_median)} €/m² médian). Ordre de grandeur, pas une estimation de notaire.</span>`
+        : `<span class="note">Prix non estimable : moins de 5 ventes comparables à proximité.</span>`}</div>
+      ${q.mode === "pari" ? `<p class="note"><b>Pari long terme</b> : zone ${echapper(q.libelle || "AUs")} prévue pour être urbanisée, mais pas constructible aujourd'hui. Son ouverture dépend d'une modification du PLU, qui peut ne jamais venir.</p>` : ""}
       <dl>
         ${ligne("Propriétaire", q.proprietaire ? echapper(q.proprietaire) + (q.forme_juridique ? " (" + echapper(q.forme_juridique) + ")" : "") : null)}
         ${ligne("Reste dans le top 10 %", q.robustesse != null ? Math.round(q.robustesse) + " % des réglages" : null)}
@@ -257,6 +264,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
         ${ligne("Centre", q.dist_centre_km != null ? dec(q.dist_centre_km) + " km" : null)}
         ${ligne("Croissance population", q.croissance_pop_an_pct != null ? dec(q.croissance_pop_an_pct, 2) + " %/an" : null)}
         ${ligne("Locaux autorisés à 3 km", q.locaux_autorises_m2 != null ? nf.format(q.locaux_autorises_m2) + " m²" : null)}
+        ${ligne("Distance à la ville existante", q.dist_zone_urbaine_m != null ? nf.format(q.dist_zone_urbaine_m) + " m" : null)}
         ${ligne("Budget ZAN de la commune déjà utilisé", q.budget_zan_consomme_pct != null ? Math.round(q.budget_zan_consomme_pct) + " %" : null)}
       </dl>
       <div class="liens">
@@ -359,6 +367,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
     profils = meta.profils || { general: { nom: "Général", poids: meta.poids } };
     const memo = memoire.lire() || {};
     profil = profils[memo.profil] ? memo.profil : "general";
+    if (memo.budget) $("budgetMax").value = memo.budget;
     poids = { ...profils[profil].poids, ...(memo.poids || {}) };
     $("profil").innerHTML = Object.entries(profils).map(([k, v]) =>
       `<option value="${k}"${k === profil ? " selected" : ""}>${echapper(v.nom)}</option>`).join("");
@@ -387,6 +396,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   $("surfaceMin").addEventListener("change", () => recalculer());
   $("reinitialiser").addEventListener("click", () => { poids = { ...profils[profil].poids }; sauver(); curseurs(); recalculer(); });
   $("nouvelles").addEventListener("change", () => recalculer());
+  $("budgetMax").addEventListener("change", () => { sauver(); recalculer(); });
   $("profil").addEventListener("change", (e) => {
     profil = e.target.value; poids = { ...profils[profil].poids }; sauver(); curseurs(); recalculer();
   });

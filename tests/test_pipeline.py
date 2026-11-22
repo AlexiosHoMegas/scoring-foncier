@@ -46,7 +46,7 @@ def test_lineaire_et_log():
 def _mini_donnees(cfg):
     d = demo.generer(cfg)
     parcelles = gpd.GeoDataFrame({
-        "id": ["A", "B", "C", "D", "E"], "insee": "99001", "contenance": [5000, 1000, 5000, 5000, 5000],
+        "id": ["A", "B", "C", "D", "E"], "insee": "99001", "contenance": [5000, 300, 5000, 5000, 5000],
     }, geometry=[box(0, 0, 100, 50), box(0, 60, 20, 110), box(200, 0, 300, 50),
                  box(0, 500, 100, 550), box(400, 0, 500, 50)], crs=CRS_METRIQUE)
     d.parcelles = parcelles
@@ -260,3 +260,25 @@ def test_sitadel_lit_le_format_dido(tmp_path, monkeypatch, cfg, donnees):
     g = sitadel.permis_locaux(cfg, ["99"], donnees.parcelles, donnees.communes)
     assert list(g["surface_m2"]) == [1200]
     assert g.geometry.iloc[0].distance(p0.geometry.representative_point()) < 1
+
+
+def test_mode_pari_et_ouverture(cfg):
+    """Une parcelle en AUs est gardée en mode « pari », notée sur ses chances d'ouverture."""
+    d = _mini_donnees(cfg)
+    d.zones = gpd.GeoDataFrame({"typezone": ["U", "AUs", "AUs"], "libelle": ["UE", "AU0", "AU0"],
+                                "formdomi": None, "urlfic": None},
+                               geometry=[box(-10, -10, 150, 600), box(150, -10, 300, 100),
+                                         box(1500, -10, 1700, 100)], crs=CRS_METRIQUE)
+    d.parcelles = gpd.GeoDataFrame({"id": ["A", "P1", "P2"], "insee": "99001", "contenance": 5000},
+                                   geometry=[box(0, 0, 100, 50), box(160, 0, 260, 50), box(1550, 0, 1650, 50)],
+                                   crs=CRS_METRIQUE)
+    d.routes = gpd.GeoDataFrame({"highway": ["residential"]}, geometry=[LineString([(-5, -20), (2000, -20)])],
+                                crs=CRS_METRIQUE)
+    p = filtres.appliquer(d, cfg)
+    c = p[p["motif_exclusion"].isna()].set_index("id")
+    assert c.loc["A", "mode"] == "constructible" and c.loc["P1", "mode"] == "pari"
+    from foncier.agents import ouverture
+    o = ouverture.noter(c, d, cfg["agents"]["ouverture"])
+    assert o.loc["A", "note_ouverture"] == 100
+    # P1 touche la ville, P2 en est à plus d'un kilomètre.
+    assert o.loc["P1", "note_ouverture"] > o.loc["P2", "note_ouverture"]

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from .donnees import Donnees
@@ -54,7 +55,11 @@ def appliquer(d: Donnees, cfg: dict) -> gpd.GeoDataFrame:
     for c in ("typezone", "libelle", "formdomi", "urlfic"):
         p[c] = jointure[c].reindex(p.index)
     exclure(actives() & p["typezone"].isna(), "hors document d'urbanisme")
-    exclure(actives() & ~p["typezone"].isin(f["typezones_autorisees"]), "zone non constructible")
+    pari = f.get("typezones_pari", [])
+    exclure(actives() & ~p["typezone"].isin(list(f["typezones_autorisees"]) + list(pari)),
+            "zone non constructible")
+    # « constructible » : on peut construire aujourd'hui ; « pari » : zone AUs, ouverture à venir.
+    p["mode"] = np.where(p["typezone"].isin(pari), "pari", "constructible")
 
     # 3. Vocation : zones d'habitat signalées.
     residentiel = p["formdomi"].fillna("").astype(str).str.startswith("01")
@@ -65,10 +70,13 @@ def appliquer(d: Donnees, cfg: dict) -> gpd.GeoDataFrame:
     if not d.routes.empty:
         roulables = d.routes[d.routes["highway"] != "motorway"]
         a = p.loc[actives(), ["geometry"]]
+        max_pari = f.get("acces_route_max_pari_m", f["acces_route_max_m"])
         proche = gpd.sjoin_nearest(a, roulables[["geometry"]], how="left",
-                                   max_distance=f["acces_route_max_m"], distance_col="_d")
+                                   max_distance=max(f["acces_route_max_m"], max_pari), distance_col="_d")
         proche = proche[~proche.index.duplicated(keep="first")]
-        exclure(actives() & proche["_d"].reindex(p.index).isna() & p.index.isin(a.index), "enclavée")
+        dist = proche["_d"].reindex(p.index)
+        limite = np.where(p["mode"] == "pari", max_pari, f["acces_route_max_m"])
+        exclure(actives() & p.index.isin(a.index) & ~(dist <= limite), "enclavée")
     else:
         log.warning("Pas de données routières : filtre d'accès ignoré")
 
