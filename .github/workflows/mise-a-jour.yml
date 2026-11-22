@@ -1,0 +1,67 @@
+name: Mise à jour automatique de la carte
+
+on:
+  schedule:
+    # Chaque lundi à 04:17 UTC.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  calcul:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Semaine en cours
+        id: semaine
+        run: echo "cle=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache des téléchargements de la semaine
+        uses: actions/cache@v6
+        with:
+          path: .cache
+          key: sources-${{ steps.semaine.outputs.cle }}
+
+      - name: Télécharger les données et calculer les scores
+        env:
+          FONCIER_CACHE: .cache
+        run: python -m foncier.run --config config.yaml --sortie site/data
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  publication:
+    needs: calcul
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - id: deploiement
+        uses: actions/deploy-pages@v5

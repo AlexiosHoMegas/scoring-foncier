@@ -1,0 +1,84 @@
+# Configuration du scoring foncier.
+# Toutes les valeurs sont modifiables ; le pipeline les relit à chaque exécution.
+
+territoire:
+  nom: "Montpellier Méditerranée Métropole"
+  # EPCI couverts (code SIREN). 243400017 = Montpellier Méditerranée Métropole (31 communes).
+  epcis: ["243400017"]
+  # Communes ajoutées hors EPCI (codes INSEE), par exemple pour la couronne.
+  communes_supplementaires: []
+  # Point de référence pour la distance au centre (Place de la Comédie).
+  centre: { lon: 3.8800, lat: 43.6086 }
+
+filtres:
+  # Types de zone CNIG gardés : U (urbaine) et AUc (à urbaniser, ouverte).
+  # AUs (à urbaniser bloquée) demande une modification du PLU : exclue.
+  typezones_autorisees: ["U", "AUc"]
+  surface_min_m2: 2000
+  # Distance maximale à une voie carrossable (m).
+  acces_route_max_m: 50
+  # Part maximale de la parcelle couverte par du bâti.
+  emprise_batie_max: 0.10
+  # Prescriptions CNIG qui excluent une parcelle si elles en couvrent plus de la moitié :
+  # 01 = espace boisé classé, 05 = emplacement réservé.
+  prescriptions_exclues: ["01", "05"]
+  recouvrement_prescription_max: 0.5
+  # Zones à vocation résidentielle (FORMDOMI/DESTDOMI commençant par 01) : signalées,
+  # exclues seulement si true.
+  exclure_residentiel: false
+  # Périmètres de PPR naturels (servitude PM1) : signalés, exclus seulement si true.
+  # Les zones bleues d'un PPR restent souvent constructibles sous conditions.
+  exclure_ppr: false
+
+agents:
+  prix:
+    rayon_m: 2000
+    rayon_max_m: 5000
+    ventes_min: 5
+    annees: 3
+  trafic:
+    rayon_m: 300
+    tmja_min: 500
+    tmja_ref: 40000
+    # Trafic estimé pour les routes sans comptage départemental (routes nationales).
+    estimation_par_classe: { trunk: 25000, primary: 12000, secondary: 6000 }
+    decote_estimation: 0.7
+  accessibilite:
+    echangeur_ideal_m: 2000
+    echangeur_max_m: 15000
+    centre_ideal_m: 5000
+    centre_max_m: 40000
+    part_echangeur: 0.6
+    detour: 1.3
+  surface:
+    reference_m2: 50000
+  dynamique:
+    annees: 10
+  developpement:
+    rayon_m: 3000
+    annees: 5
+
+poids:
+  prix: 25
+  trafic: 20
+  accessibilite: 15
+  surface: 15
+  dynamique: 15
+  developpement: 10
+
+penalites:
+  residentiel: 0.85
+  ppr: 0.80
+
+sources:
+  geo_api: "https://geo.api.gouv.fr"
+  cadastre: "https://cadastre.data.gouv.fr/data/etalab-cadastre/latest/geojson/communes/{dep}/{insee}/cadastre-{insee}-{couche}.json.gz"
+  apicarto_gpu: "https://apicarto.ign.fr/api/gpu"
+  datagouv_api: "https://www.data.gouv.fr/api/1"
+  dvf_dataset: "demandes-de-valeurs-foncieres-geolocalisees"
+  dvf_secours: "https://www.data.gouv.fr/api/1/datasets/r/d7933994-2c66-4131-a4da-cf7cd18040a4"
+  trafic_comptages: "https://www.data.gouv.fr/api/1/datasets/r/a73022a0-6306-47c7-bbbd-05b1ebc18429"
+  trafic_sections: "https://www.data.gouv.fr/api/1/datasets/r/dee210d1-131a-4d36-b1e3-7b540c72e181"
+  overpass: "https://overpass-api.de/api/interpreter"
+  insee_population: "https://www.insee.fr/fr/statistiques/3698339"
+  sitadel_dataset: "689c42fa521ccf80ce954f83"
