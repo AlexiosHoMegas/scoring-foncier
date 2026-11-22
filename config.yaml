@@ -80,6 +80,9 @@ agents:
     rayon_m: 3000
     annees: 5
   rarete: {}
+  front:
+    # Surface nouvellement urbanisée à moins de N mètres, sur les 6 dernières années.
+    rayon_m: 2000
   ouverture:
     # Une zone AUs collée à la ville a plus de chances d'être ouverte en premier.
     distance_ideale_m: 0
@@ -94,14 +97,15 @@ robustesse:
 
 # Poids par défaut (profil « général »). Les autres profils se choisissent dans la carte.
 poids:
-  prix: 22
-  trafic: 18
-  accessibilite: 15
+  prix: 20
+  trafic: 15
+  accessibilite: 14
   surface: 13
   dynamique: 12
   developpement: 10
   rarete: 10
   ouverture: 0
+  front: 6
 
 profils:
   entrepot:
@@ -116,7 +120,7 @@ profils:
   pari:
     nom: "Pari long terme (zones AUs)"
     mode: pari
-    poids: { prix: 30, trafic: 5, accessibilite: 10, surface: 5, dynamique: 15, developpement: 5, rarete: 0, ouverture: 30 }
+    poids: { prix: 25, trafic: 5, accessibilite: 10, surface: 5, dynamique: 10, developpement: 5, rarete: 0, ouverture: 25, front: 15 }
 
 # Pour garder la carte légère : on ne publie pas les parcelles dont l'estimation basse
 # dépasse ce montant (celles sans estimation restent).
@@ -144,6 +148,8 @@ sources:
   sitadel_amenager_csv: "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/96883f50-538b-41f9-a059-c6eb97e6a23a/csv"
   # Consommation d'espaces naturels 2011-2025 par commune (Cerema), en m².
   consoenaf: "https://www.data.gouv.fr/api/1/datasets/r/b258feec-f8ff-4e0a-93b3-baf1fe46ef66"
+  # Même donnée par carreau de 1 km (GeoPackage national, environ 95 Mo).
+  consoenaf_grille: "https://www.data.gouv.fr/api/1/datasets/r/b11c843e-d73f-45e5-88b1-dcb5e9fc6e3b"
   # Propriétaires personnes morales (DGFiP), portail data.economie.gouv.fr.
   personnes_morales: "https://data.economie.gouv.fr/api/datasets/1.0/fichiers-des-locaux-et-des-parcelles-des-personnes-morales"
   # Zonage de la publication précédente, pour repérer les parcelles devenues constructibles.

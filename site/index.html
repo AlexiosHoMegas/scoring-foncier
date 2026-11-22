@@ -51,6 +51,10 @@
   .onglets button[aria-selected="true"] { background: var(--fond); color: var(--texte); }
   .contenu { overflow-y: auto; padding: 4px 16px 16px; }
   .panneau.replie .contenu { display: none; }
+  .couches { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .couches button { border: 1px solid var(--ligne); background: transparent; color: var(--texte); font: inherit;
+    font-size: 13px; border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+  .couches button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .legende { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--discret); margin: 6px 0 10px; }
   .legende i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
   h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); margin: 16px 0 8px; }
@@ -111,6 +115,11 @@
     </div>
   </div>
   <div class="contenu">
+    <div class="couches" role="group" aria-label="Couches">
+      <button data-couche="front" aria-pressed="false">Front d'urbanisation</button>
+      <button data-couche="zones_au" aria-pressed="false">Aires de développement</button>
+      <button data-couche="axes" aria-pressed="false">Grands axes</button>
+    </div>
     <div class="legende" id="legende"></div>
 
     <div data-vue="classement">
@@ -158,7 +167,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const AGENTS = [
     ["prix", "Prix"], ["trafic", "Trafic"], ["accessibilite", "Accessibilité"],
     ["surface", "Surface"], ["dynamique", "Dynamique"], ["developpement", "Développement"],
-    ["rarete", "Rareté"], ["ouverture", "Chances d'ouverture"],
+    ["rarete", "Rareté"], ["ouverture", "Chances d'ouverture"], ["front", "Front d'urbanisation"],
   ];
   const CLASSES = [
     { min: 75, nom: "acheter", couleur: "--c-acheter" },
@@ -179,6 +188,42 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
     : { top: 90, bottom: Math.round(window.innerHeight * 0.6), left: 30, right: 30 };
   const $ = (id) => document.getElementById(id);
   const echapper = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  let couchesDonnees = null;
+  async function basculerCouche(nom, bouton) {
+    const actif = bouton.getAttribute("aria-pressed") !== "true";
+    bouton.setAttribute("aria-pressed", String(actif));
+    if (!couchesDonnees) {
+      bouton.disabled = true;
+      try { couchesDonnees = await fetch("data/couches.json").then((r) => r.json()); }
+      catch { bouton.setAttribute("aria-pressed", "false"); bouton.disabled = false; return; }
+      bouton.disabled = false;
+    }
+    const id = "couche-" + nom;
+    if (!carte.getSource(id)) {
+      carte.addSource(id, { type: "geojson", data: couchesDonnees[nom] });
+      const avant = carte.getLayer("parcelles-fond") ? "parcelles-fond" : undefined;
+      if (nom === "front") {
+        carte.addLayer({ id, type: "fill", source: id, paint: {
+          "fill-color": ["interpolate", ["linear"], ["get", "ha_recent"], 0, "rgba(124,77,196,0)", 2, "rgba(124,77,196,0.25)", 10, "rgba(124,77,196,0.6)"],
+          "fill-outline-color": "rgba(124,77,196,0.15)" } }, avant);
+      } else if (nom === "zones_au") {
+        carte.addLayer({ id, type: "fill", source: id, paint: {
+          "fill-color": ["match", ["get", "typezone"], "AUs", "#8e5bd0", "#2f7fc1"], "fill-opacity": 0.18 } }, avant);
+        carte.addLayer({ id: id + "-bord", type: "line", source: id, paint: {
+          "line-color": ["match", ["get", "typezone"], "AUs", "#8e5bd0", "#2f7fc1"], "line-width": 1.5, "line-dasharray": [2, 1] } }, avant);
+      } else {
+        carte.addLayer({ id, type: "line", source: id, paint: {
+          "line-color": ["match", ["get", "classe"], "comptage", "#c2412d", "motorway", "#3d3d3d", "trunk", "#5a5a5a", "#7c7c7c"],
+          "line-width": ["case", ["==", ["get", "classe"], "comptage"],
+            ["interpolate", ["linear"], ["coalesce", ["get", "tmja"], 0], 0, 1, 10000, 3, 40000, 7],
+            ["match", ["get", "classe"], "motorway", 4, "trunk", 3, 2]] } }, avant);
+      }
+    }
+    for (const l of [id, id + "-bord"]) if (carte.getLayer(l)) carte.setLayoutProperty(l, "visibility", actif ? "visible" : "none");
+  }
+  document.querySelectorAll("[data-couche]").forEach((b) =>
+    b.addEventListener("click", () => carte && basculerCouche(b.dataset.couche, b)));
 
   let meta, donnees, profils, profil = "general", poids, carte, selection = null;
   const sauver = () => memoire.ecrire({ profil, poids, budget: $("budgetMax").value });
@@ -264,6 +309,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
         ${ligne("Centre", q.dist_centre_km != null ? dec(q.dist_centre_km) + " km" : null)}
         ${ligne("Croissance population", q.croissance_pop_an_pct != null ? dec(q.croissance_pop_an_pct, 2) + " %/an" : null)}
         ${ligne("Locaux autorisés à 3 km", q.locaux_autorises_m2 != null ? nf.format(q.locaux_autorises_m2) + " m²" : null)}
+        ${ligne("Urbanisé à moins de 2 km" + (couchesDonnees?.periode_front ? " (" + couchesDonnees.periode_front + ")" : " (6 ans)"), q.urbanise_recent_ha != null ? dec(q.urbanise_recent_ha) + " ha" : null)}
         ${ligne("Distance à la ville existante", q.dist_zone_urbaine_m != null ? nf.format(q.dist_zone_urbaine_m) + " m" : null)}
         ${ligne("Budget ZAN de la commune déjà utilisé", q.budget_zan_consomme_pct != null ? Math.round(q.budget_zan_consomme_pct) + " %" : null)}
       </dl>

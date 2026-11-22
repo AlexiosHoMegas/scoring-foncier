@@ -39,6 +39,7 @@ class Donnees:
     parcelles_permis: set = field(default_factory=set)                  # ids avec permis récent
     # Rareté foncière (consommation d'espaces), par commune.
     conso: pd.DataFrame = field(default_factory=pd.DataFrame)           # insee, m2_2011_2021, m2_2021_2025
+    conso_grille: gpd.GeoDataFrame = field(default_factory=gdf_vide)    # carreaux 1 km : m2_recent, m2_ancien
     # Zonage publié la semaine précédente : typezone -> liste d'ids non constructibles.
     zonage_precedent: dict = field(default_factory=dict)
     # Suivi : état de chaque source, affiché dans la carte.

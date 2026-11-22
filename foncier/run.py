@@ -53,6 +53,8 @@ def executer(cfg: dict, sortie: Path, mode_demo: bool = False) -> dict:
 
     meta = export.ecrire(resultat, len(tout), exclusions, d, cfg, sortie)
     export.ecrire_zonage(tout, cfg, sortie)
+    export.ecrire_couches(d, cfg, sortie)
+    log.info("Modes : %s", resultat["mode"].value_counts().to_dict())
     log.info("Terminé en %.0f s : %d parcelles notées sur %d", time.time() - t0,
              meta["nb_candidates"], meta["nb_parcelles"])
     return meta

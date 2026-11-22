@@ -55,6 +55,7 @@ def charger(cfg: dict) -> Donnees:
     conso_ = _essayer("consommation_espaces", etats, conso.charger, cfg, list(communes["insee"]),
                       defaut=pd.DataFrame())
     precedent = _essayer("zonage_precedent", etats, zonage_precedent, cfg, defaut={})
+    grille = _essayer("consommation_grille_1km", etats, conso.grille, cfg, communes)
 
     c = cfg["territoire"]["centre"]
     centre = gpd.GeoDataFrame(geometry=[Point(c["lon"], c["lat"])], crs=CRS_WEB).to_crs(CRS_METRIQUE)
@@ -62,7 +63,7 @@ def charger(cfg: dict) -> Donnees:
                    prescriptions=prescriptions, ppr=ppr, routes=routes, echangeurs=echangeurs,
                    trafic=trafic_, ventes=ventes, population=population, permis=permis,
                    centre=centre, proprietaires=proprios, parcelles_vendues=vendues,
-                   parcelles_permis=avec_permis, conso=conso_, zonage_precedent=precedent,
+                   parcelles_permis=avec_permis, conso=conso_, conso_grille=grille, zonage_precedent=precedent,
                    sources=etats, demo=False)
 
 

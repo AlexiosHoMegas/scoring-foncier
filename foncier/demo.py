@@ -122,13 +122,22 @@ def generer(cfg: dict, graine: int = 42) -> Donnees:
     dans_auc = parcelles[parcelles.geometry.representative_point().within(auc)]
     precedent = {"AUs": sorted(dans_auc.sample(frac=0.1, random_state=graine + 4)["id"])}
 
+    # Grille 1 km : la ville « avance » vers l'ouest du territoire fictif.
+    cellules = [box(x, y, x + 1000, y + 1000) for x in np.arange(xmin - 2000, xmax + 2000, 1000)
+                for y in np.arange(ymin - 2000, ymax + 2000, 1000)]
+    cx_g = np.array([c.centroid.x for c in cellules])
+    recent = np.clip(60000 * (1 - (cx_g - xmin) / (xmax - xmin)), 0, None) * rng.uniform(0.3, 1.2, len(cellules))
+    conso_grille = gpd.GeoDataFrame({"m2_recent": recent.round(), "m2_ancien": (recent * 0.8).round()},
+                                    geometry=cellules, crs=CRS_METRIQUE)
+    conso_grille.attrs["periode_recente"] = "2019-2025"
+
     etats = {nom: {"etat": "démo"} for nom in
              ["communes", "cadastre_parcelles", "cadastre_batiments", "plu_zones", "plu_prescriptions",
               "ppr", "osm", "trafic_cd34", "dvf", "insee_population", "sitadel", "sitadel_parcelles",
-              "proprietaires", "consommation_espaces", "zonage_precedent"]}
+              "proprietaires", "consommation_espaces", "zonage_precedent", "consommation_grille_1km"]}
     return Donnees(communes=communes, parcelles=parcelles, zones=zones, batiments=batiments,
                    prescriptions=prescriptions, ppr=ppr, routes=routes, echangeurs=echangeurs,
                    trafic=trafic, ventes=ventes, population=population, permis=permis,
                    centre=centre, proprietaires=proprietaires, parcelles_vendues=vendues,
-                   parcelles_permis=permis_ids, conso=conso, zonage_precedent=precedent,
+                   parcelles_permis=permis_ids, conso=conso, conso_grille=conso_grille, zonage_precedent=precedent,
                    sources=etats, demo=True)

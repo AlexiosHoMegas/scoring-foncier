@@ -26,7 +26,8 @@ PROPRIETES = [
     "prix_m2_median", "prix_nb_ventes", "trafic_tmja", "trafic_source", "dist_echangeur_km",
     "dist_centre_km", "croissance_pop_an_pct", "locaux_autorises_m2", "budget_zan_consomme_pct",
     "prix_estime", "prix_estime_bas", "prix_estime_haut", "proprietaire", "forme_juridique",
-    "robustesse", "mode", "prix_base", "note_ouverture", "dist_zone_urbaine_m", "drapeaux",
+    "robustesse", "mode", "prix_base", "note_ouverture", "dist_zone_urbaine_m",
+    "urbanise_recent_ha", "drapeaux",
 ]
 
 
@@ -117,3 +118,42 @@ def compacter(g: gpd.GeoDataFrame, colonnes: list[str]) -> dict:
         "colonnes": {c: _colonne(g[c]) for c in colonnes},
         "geometries": [_geometrie(x) for x in g.geometry],
     }
+
+
+def _fc(g: gpd.GeoDataFrame, colonnes: list[str], tolerance: float) -> dict:
+    if g.empty:
+        return {"type": "FeatureCollection", "features": []}
+    g = g[colonnes + ["geometry"]].copy()
+    g["geometry"] = g.geometry.simplify(tolerance, preserve_topology=True)
+    g = g[~g.geometry.is_empty].to_crs(CRS_WEB)
+    g["geometry"] = shapely.set_precision(g.geometry.values, 1e-5)
+    return json.loads(g.to_json(na="null", drop_id=True))
+
+
+def ecrire_couches(d, cfg: dict, sortie: Path) -> None:
+    """Couches affichables sur la carte : aires de développement, grands axes, front d'urbanisation."""
+    autorisees = set(cfg["filtres"]["typezones_autorisees"]) | set(cfg["filtres"].get("typezones_pari", []))
+    zones_au = d.zones[d.zones["typezone"].isin(autorisees - {"U"})] if not d.zones.empty else d.zones
+    axes = gpd.GeoDataFrame(columns=["classe", "tmja", "geometry"], geometry="geometry", crs=d.zones.crs)
+    if not d.routes.empty:
+        grands = d.routes[d.routes["highway"].isin(["motorway", "trunk", "primary"])].copy()
+        grands["classe"] = grands["highway"]
+        grands["tmja"] = None
+        axes = grands[["classe", "tmja", "geometry"]]
+    if not d.trafic.empty:
+        mesures = d.trafic[d.trafic.geometry.geom_type.isin(["LineString", "MultiLineString"])].copy()
+        mesures["classe"] = "comptage"
+        axes = pd.concat([axes, mesures[["classe", "tmja", "geometry"]]], ignore_index=True)
+    axes = gpd.GeoDataFrame(axes, geometry="geometry", crs=d.zones.crs)
+    front = d.conso_grille.copy()
+    if not front.empty:
+        front["ha_recent"] = (front["m2_recent"] / 10000).round(1)
+        front = front[front["ha_recent"] > 0]
+    couches = {
+        "zones_au": _fc(zones_au, ["typezone", "libelle"], 5),
+        "axes": _fc(axes, ["classe", "tmja"], 15),
+        "front": _fc(front, ["ha_recent"] if not front.empty else [], 1),
+        "periode_front": d.conso_grille.attrs.get("periode_recente") if not d.conso_grille.empty else None,
+    }
+    (sortie / "couches.json").write_text(json.dumps(couches, ensure_ascii=False, separators=(",", ":")),
+                                         encoding="utf-8")
