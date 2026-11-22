@@ -105,10 +105,30 @@ def generer(cfg: dict, graine: int = 42) -> Donnees:
                               geometry=gpd.points_from_xy(rng.uniform(xmin, xmin + 6000, m),
                                                           rng.uniform(ymin, ymax, m)), crs=CRS_METRIQUE)
 
+    # Propriétaires : quelques communes et sociétés, le reste à des particuliers.
+    echantillon = parcelles.sample(frac=0.15, random_state=graine + 1)
+    groupes = rng.choice(["4", "0", "0", "6", "1"], len(echantillon))
+    noms = {"4": "COMMUNE DE DÉMO", "0": "SCI DÉMO FONCIER", "6": "SEM DÉMO AMÉNAGEMENT", "1": "ÉTAT"}
+    formes = {"4": "Commune", "0": "Société civile immobilière", "6": "Société d'économie mixte", "1": "État"}
+    proprietaires = pd.DataFrame({"id": echantillon["id"].to_numpy(), "groupe": groupes,
+                                  "forme": [formes[g] for g in groupes], "forme_abregee": None,
+                                  "denomination": [noms[g] for g in groupes]})
+    vendues = pd.Series("2025-09-01", index=parcelles.sample(frac=0.04, random_state=graine + 2)["id"].to_numpy())
+    permis_ids = set(parcelles.sample(frac=0.03, random_state=graine + 3)["id"])
+    conso = pd.DataFrame({"insee": communes["insee"], "m2_2011_2021": [400000, 250000, 90000],
+                          "m2_2021_2025": [150000, 40000, 50000]})
+    # Zonage « de la semaine dernière » : une partie de la zone AUc était encore en AUs.
+    auc = zones[zones["typezone"] == "AUc"].geometry.union_all()
+    dans_auc = parcelles[parcelles.geometry.representative_point().within(auc)]
+    precedent = {"AUs": sorted(dans_auc.sample(frac=0.1, random_state=graine + 4)["id"])}
+
     etats = {nom: {"etat": "démo"} for nom in
              ["communes", "cadastre_parcelles", "cadastre_batiments", "plu_zones", "plu_prescriptions",
-              "ppr", "osm", "trafic_cd34", "dvf", "insee_population", "sitadel"]}
+              "ppr", "osm", "trafic_cd34", "dvf", "insee_population", "sitadel", "sitadel_parcelles",
+              "proprietaires", "consommation_espaces", "zonage_precedent"]}
     return Donnees(communes=communes, parcelles=parcelles, zones=zones, batiments=batiments,
                    prescriptions=prescriptions, ppr=ppr, routes=routes, echangeurs=echangeurs,
                    trafic=trafic, ventes=ventes, population=population, permis=permis,
-                   centre=centre, sources=etats, demo=True)
+                   centre=centre, proprietaires=proprietaires, parcelles_vendues=vendues,
+                   parcelles_permis=permis_ids, conso=conso, zonage_precedent=precedent,
+                   sources=etats, demo=True)

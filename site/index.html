@@ -37,6 +37,7 @@
   @media (min-width: 900px) {
     .panneau { left: auto; right: 16px; top: 16px; bottom: 16px; width: 380px; border-radius: 16px; max-height: none; }
     .barre { right: 412px; }
+    .maplibregl-ctrl-top-right { right: 404px; }
   }
   .panneau.haut { max-height: 72vh; }
   @media (min-width: 900px) { .panneau.haut { max-height: none; } }
@@ -79,6 +80,13 @@
   .note { color: var(--discret); font-size: 12.5px; margin-top: 12px; }
   .filtres { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .filtres label { font-size: 13px; color: var(--discret); display: grid; gap: 3px; }
+  .filtres .large { grid-column: 1 / -1; }
+  .filtres .case { display: flex; align-items: center; gap: 8px; color: var(--texte); }
+  .filtres .case input { width: auto; }
+  .filtres select { font: inherit; padding: 6px 8px; border: 1px solid var(--ligne); border-radius: 8px;
+    background: var(--fond); color: var(--texte); width: 100%; }
+  .estimation { background: var(--fond); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+  .estimation b { font-size: 20px; }
   .filtres input { font: inherit; padding: 6px 8px; border: 1px solid var(--ligne); border-radius: 8px;
     background: var(--fond); color: var(--texte); width: 100%; }
   button.secondaire { border: 1px solid var(--ligne); background: transparent; color: var(--texte);
@@ -107,8 +115,10 @@
 
     <div data-vue="classement">
       <div class="filtres">
+        <label class="large">Usage visé<select id="profil"></select></label>
         <label>Score minimum<input id="scoreMin" type="number" min="0" max="100" value="0" inputmode="numeric"></label>
         <label>Surface min. (m²)<input id="surfaceMin" type="number" min="0" step="500" value="0" inputmode="numeric"></label>
+        <label class="large case"><input id="nouvelles" type="checkbox"> Seulement les parcelles devenues constructibles</label>
       </div>
       <h3 id="titreListe">Meilleures parcelles</h3>
       <ul class="liste" id="liste"></ul>
@@ -117,7 +127,7 @@
     <div data-vue="reglages" hidden>
       <h3>Poids des critères</h3>
       <div id="curseurs"></div>
-      <button class="secondaire" id="reinitialiser">Revenir aux poids par défaut</button>
+      <button class="secondaire" id="reinitialiser">Revenir aux poids du profil</button>
       <p class="note">Les poids sont recalculés dans votre navigateur et mémorisés sur cet appareil.</p>
     </div>
 
@@ -130,6 +140,9 @@
       <dl id="stats"></dl>
       <h3>État des sources</h3>
       <div class="etat" id="etatSources"></div>
+      <p class="note">Aucune donnée publique n'indique si un terrain est en vente. Sont écartés ceux qui ne le sont
+        probablement pas : propriété publique, vente depuis moins de 2 ans, permis récent sur la parcelle.
+        Les autres restent à confirmer auprès du propriétaire, du notaire ou de la mairie.</p>
       <p class="note">Le score aide à repérer des terrains. Il ne remplace pas la lecture du règlement de zone,
         un certificat d'urbanisme ni l'avis d'un notaire.</p>
     </div>
@@ -144,6 +157,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const AGENTS = [
     ["prix", "Prix"], ["trafic", "Trafic"], ["accessibilite", "Accessibilité"],
     ["surface", "Surface"], ["dynamique", "Dynamique"], ["developpement", "Développement"],
+    ["rarete", "Rareté"],
   ];
   const CLASSES = [
     { min: 75, nom: "acheter", couleur: "--c-acheter" },
@@ -154,6 +168,9 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const couleur = (s) => css(CLASSES.find((c) => s >= c.min).couleur);
   const nf = new Intl.NumberFormat("fr-FR");
+  const euros = (v) => v == null ? null : v >= 1e6
+    ? (v / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " M€"
+    : Math.round(v / 1000).toLocaleString("fr-FR") + " k€";
   const dec = (v, n = 1) => v == null ? null : v.toLocaleString("fr-FR", { maximumFractionDigits: n });
   const bureau = () => window.innerWidth >= 900;
   const marges = () => bureau()
@@ -162,7 +179,8 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   const $ = (id) => document.getElementById(id);
   const echapper = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  let meta, donnees, poidsDefaut, poids, carte, selection = null;
+  let meta, donnees, profils, profil = "general", poids, carte, selection = null;
+  const sauver = () => memoire.ecrire({ profil, poids });
 
   const memoire = {
     lire() { try { return JSON.parse(localStorage.getItem("poids-foncier") || "null"); } catch { return null; } },
@@ -180,9 +198,10 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
       if (dr.includes("périmètre PPR")) s *= pen.ppr ?? 1;
       p.score_dyn = Math.round(s * 10) / 10;
     }
-    const sMin = +$("scoreMin").value || 0, surfMin = +$("surfaceMin").value || 0;
+    const sMin = +$("scoreMin").value || 0, surfMin = +$("surfaceMin").value || 0, nouv = $("nouvelles").checked;
     const visibles = { type: "FeatureCollection",
-      features: donnees.features.filter((f) => f.properties.score_dyn >= sMin && f.properties.surface_m2 >= surfMin) };
+      features: donnees.features.filter((f) => f.properties.score_dyn >= sMin && f.properties.surface_m2 >= surfMin
+        && (!nouv || (f.properties.drapeaux || []).includes("devenue constructible"))) };
     carte.getSource("parcelles")?.setData(visibles);
     lister(visibles.features);
     if (selection) afficherFiche(selection);
@@ -195,7 +214,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
       const p = f.properties;
       return `<li data-i="${i}"><span class="pastille" style="background:${couleur(p.score_dyn)}">${Math.round(p.score_dyn)}</span>
         <span><b>${echapper(p.commune)}</b> · ${nf.format(Math.round(p.surface_m2))} m²
-        <small>Zone ${echapper(p.libelle || p.typezone)} · parcelle ${echapper(p.id)}</small></span></li>`;
+        <small>${p.prix_estime != null ? "≈ " + euros(p.prix_estime) + " · " : ""}Zone ${echapper(p.libelle || p.typezone)} · ${echapper(p.id)}</small></span></li>`;
     }).join("") || `<p class="note">Aucune parcelle ne passe ces filtres.</p>`;
     $("liste").querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
       const f = tri[+li.dataset.i];
@@ -225,15 +244,20 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
         const v = q["note_" + k] ?? 0;
         return `<div><span>${n}</span><span class="jauge"><span style="width:${v}%"></span></span><em>${Math.round(v)}</em></div>`;
       }).join("")}</div>
+      <div class="estimation">${q.prix_estime != null
+        ? `Prix estimé <b>≈ ${euros(q.prix_estime)}</b><br><span class="note">Fourchette ${euros(q.prix_estime_bas)} à ${euros(q.prix_estime_haut)}, d'après ${q.prix_nb_ventes} ventes de terrains constructibles proches (${dec(q.prix_m2_median)} €/m² médian). Ordre de grandeur, pas une estimation de notaire.</span>`
+        : `<span class="note">Prix non estimable : moins de 5 ventes de terrains constructibles à proximité.</span>`}</div>
       <dl>
+        ${ligne("Propriétaire", q.proprietaire ? echapper(q.proprietaire) + (q.forme_juridique ? " (" + echapper(q.forme_juridique) + ")" : "") : null)}
+        ${ligne("Reste dans le top 10 %", q.robustesse != null ? Math.round(q.robustesse) + " % des réglages" : null)}
         ${ligne("Surface", nf.format(Math.round(q.surface_m2)) + " m²")}
         ${ligne("Zone", echapper(q.libelle || "") + " (" + echapper(q.typezone) + ")")}
-        ${ligne("Prix médian terrains", q.prix_m2_median != null ? dec(q.prix_m2_median) + " €/m² (" + q.prix_nb_ventes + " ventes)" : "pas assez de ventes")}
         ${ligne("Trafic proche", q.trafic_tmja != null ? nf.format(q.trafic_tmja) + " véh./jour (" + echapper(q.trafic_source) + ")" : echapper(q.trafic_source))}
         ${ligne("Échangeur", q.dist_echangeur_km != null ? dec(q.dist_echangeur_km) + " km" : null)}
         ${ligne("Centre", q.dist_centre_km != null ? dec(q.dist_centre_km) + " km" : null)}
         ${ligne("Croissance population", q.croissance_pop_an_pct != null ? dec(q.croissance_pop_an_pct, 2) + " %/an" : null)}
         ${ligne("Locaux autorisés à 3 km", q.locaux_autorises_m2 != null ? nf.format(q.locaux_autorises_m2) + " m²" : null)}
+        ${ligne("Budget ZAN de la commune déjà utilisé", q.budget_zan_consomme_pct != null ? Math.round(q.budget_zan_consomme_pct) + " %" : null)}
       </dl>
       <div class="liens">
         ${q.urlfic ? `<a href="${echapper(q.urlfic)}" target="_blank" rel="noopener">Règlement de zone</a>` : ""}
@@ -265,7 +289,7 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
       AGENTS.forEach(([k]) => ($("o-" + k).textContent = Math.round((100 * (poids[k] || 0)) / total) + " %"));
     };
     AGENTS.forEach(([k]) => $("w-" + k).addEventListener("input", (e) => {
-      poids[k] = +e.target.value; memoire.ecrire(poids); maj(); recalculer();
+      poids[k] = +e.target.value; sauver(); maj(); recalculer();
     }));
     maj();
   }
@@ -283,7 +307,8 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
     $("bandeauDemo").hidden = !meta.demo;
     const ex = Object.entries(meta.exclusions || {}).map(([k, v]) => ligne("Exclues : " + echapper(k), nf.format(v))).join("");
     $("stats").innerHTML = ligne("Parcelles analysées", nf.format(meta.nb_parcelles)) +
-      ligne("Candidates notées", nf.format(meta.nb_candidates)) + ex;
+      ligne("Candidates notées", nf.format(meta.nb_candidates)) +
+      ligne("Devenues constructibles depuis la dernière mise à jour", nf.format(meta.nouvelles_constructibles || 0)) + ex;
     $("etatSources").innerHTML = Object.entries(meta.sources || {}).map(([k, v]) => {
       const ok = v.etat === "ok" || v.etat === "démo";
       return `<span>${echapper(k.replace(/_/g, " "))}</span><span class="${ok ? "ok" : "erreur"}" title="${echapper(v.message || "")}">${ok ? echapper(v.etat) : "indisponible"}</span>`;
@@ -331,8 +356,12 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
     ]);
     meta = m;
     donnees = decoder(brut);
-    poidsDefaut = { ...meta.poids };
-    poids = { ...poidsDefaut, ...(memoire.lire() || {}) };
+    profils = meta.profils || { general: { nom: "Général", poids: meta.poids } };
+    const memo = memoire.lire() || {};
+    profil = profils[memo.profil] ? memo.profil : "general";
+    poids = { ...profils[profil].poids, ...(memo.poids || {}) };
+    $("profil").innerHTML = Object.entries(profils).map(([k, v]) =>
+      `<option value="${k}"${k === profil ? " selected" : ""}>${echapper(v.nom)}</option>`).join("");
     infos(); legende(); curseurs();
 
     await carteChargee;
@@ -356,7 +385,11 @@ import * as maplibregl from "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   }));
   $("scoreMin").addEventListener("change", () => recalculer());
   $("surfaceMin").addEventListener("change", () => recalculer());
-  $("reinitialiser").addEventListener("click", () => { poids = { ...poidsDefaut }; memoire.ecrire(poids); curseurs(); recalculer(); });
+  $("reinitialiser").addEventListener("click", () => { poids = { ...profils[profil].poids }; sauver(); curseurs(); recalculer(); });
+  $("nouvelles").addEventListener("change", () => recalculer());
+  $("profil").addEventListener("change", (e) => {
+    profil = e.target.value; poids = { ...profils[profil].poids }; sauver(); curseurs(); recalculer();
+  });
 
   demarrer().catch((e) => {
     $("sousTitre").textContent = "Impossible de charger les données : " + e.message;

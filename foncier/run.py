@@ -32,8 +32,10 @@ def executer(cfg: dict, sortie: Path, mode_demo: bool = False) -> dict:
     resultat = gpd.GeoDataFrame(candidats.join(notes), geometry="geometry", crs=candidats.crs)
     resultat["score"] = score.calculer(notes, candidats, cfg)
     resultat["classe"] = resultat["score"].map(score.classe)
+    resultat["robustesse"] = score.robustesse(notes, candidats, cfg)
 
     meta = export.ecrire(resultat, len(tout), exclusions, d, cfg, sortie)
+    export.ecrire_zonage(tout, cfg, sortie)
     log.info("Terminé en %.0f s : %d parcelles notées sur %d", time.time() - t0,
              meta["nb_candidates"], meta["nb_parcelles"])
     return meta

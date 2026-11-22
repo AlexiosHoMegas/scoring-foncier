@@ -93,19 +93,84 @@ def test_agents_notes_valides(cfg, donnees):
     assert s.between(0, 100).all()
 
 
-def test_prix_bas_mieux_note(cfg, donnees):
-    """Une parcelle entourée de ventes moins chères doit avoir une meilleure note prix."""
-    pts = [Point(0, 0), Point(10000, 0)]
-    ventes = gpd.GeoDataFrame({"prix_m2": [20] * 6 + [200] * 6, "surface": 1000, "date": "2025-01-01",
-                               "id_mutation": range(12)},
-                              geometry=[Point(i, 0) for i in range(6)] + [Point(10000 + i, 0) for i in range(6)],
-                              crs=CRS_METRIQUE)
-    cand = gpd.GeoDataFrame({"surface_m2": [5000, 5000], "insee": "99001"},
-                            geometry=[p.buffer(10) for p in pts], crs=CRS_METRIQUE)
+def test_prix_comparables_et_estimation(cfg):
+    """Ventes en zone constructible seulement ; estimation = surface × médiane, fourchette Q1-Q3."""
     d = demo.generer(cfg)
-    d.ventes = ventes
+    d.zones = gpd.GeoDataFrame({"typezone": ["U", "U", "A"], "libelle": None, "formdomi": None, "urlfic": None},
+                               geometry=[box(-100, -100, 100, 100), box(9900, -100, 10100, 100),
+                                         box(-100, 200, 100, 400)], crs=CRS_METRIQUE)
+    prix = [20, 30, 40, 50, 60] + [200] * 5 + [1] * 5          # les ventes à 1 €/m² sont en zone A
+    pts = ([Point(i * 10, 0) for i in range(5)] + [Point(10000 + i, 0) for i in range(5)]
+           + [Point(i, 300) for i in range(5)])
+    d.ventes = gpd.GeoDataFrame({"prix_m2": prix, "surface": 1000, "date": "2025-01-01",
+                                 "id_mutation": range(15)}, geometry=pts, crs=CRS_METRIQUE)
+    cand = gpd.GeoDataFrame({"surface_m2": [5000, 5000], "insee": "99001"},
+                            geometry=[Point(0, 0).buffer(10), Point(10000, 0).buffer(10)], crs=CRS_METRIQUE)
     out = agents.prix.noter(cand, d, cfg["agents"]["prix"])
+    assert out["prix_m2_median"].iloc[0] == 40           # les ventes agricoles sont ignorées
+    assert out["prix_estime"].iloc[0] == 200000          # 5 000 m² x 40 €/m²
+    assert out["prix_estime_bas"].iloc[0] == 150000 and out["prix_estime_haut"].iloc[0] == 250000
     assert out["note_prix"].iloc[0] > out["note_prix"].iloc[1]
+
+
+def test_filtre_disponibilite(cfg):
+    d = _mini_donnees(cfg)
+    d.parcelles = pd.concat([d.parcelles, gpd.GeoDataFrame(
+        {"id": ["F", "G", "H", "I"], "insee": "99001", "contenance": 5000},
+        geometry=[box(0, 130, 100, 180), box(0, 200, 100, 250), box(0, 260, 100, 310), box(0, 320, 100, 370)],
+        crs=CRS_METRIQUE)], ignore_index=True)
+    d.routes = gpd.GeoDataFrame({"highway": ["residential"]}, geometry=[LineString([(-5, -20), (-5, 600)])],
+                                crs=CRS_METRIQUE)
+    d.proprietaires = pd.DataFrame({"id": ["F", "G"], "groupe": ["4", "0"], "forme": ["Commune", "SCI"],
+                                    "denomination": ["COMMUNE X", "SCI Y"]})
+    d.parcelles_vendues = pd.Series({"H": "2026-01-01"})
+    d.parcelles_permis = {"I"}
+    p = filtres.appliquer(d, cfg).set_index("id")
+    assert p.loc["F", "motif_exclusion"] == "propriété publique"
+    assert pd.isna(p.loc["G", "motif_exclusion"]) and p.loc["G", "proprietaire"] == "SCI Y"
+    assert p.loc["H", "motif_exclusion"] == "vendue récemment"
+    assert p.loc["I", "motif_exclusion"] == "projet en cours (permis)"
+    assert p.loc["A", "proprietaire"] == "Particulier ou entreprise individuelle"
+
+
+def test_devenue_constructible(cfg):
+    d = _mini_donnees(cfg)
+    d.zonage_precedent = {"AUs": ["A"], "A": ["C"]}
+    p = filtres.appliquer(d, cfg).set_index("id")
+    assert "devenue constructible" in p.loc["A", "drapeaux"]
+    assert not p.loc["C", "nouveau_constructible"]     # toujours en zone A
+
+
+def test_robustesse(cfg, donnees):
+    tout = filtres.appliquer(donnees, cfg)
+    cand = tout[tout["motif_exclusion"].isna()]
+    notes = agents.executer(cand, donnees, cfg)
+    r = score.robustesse(notes, cand, cfg)
+    s = score.calculer(notes, cand, cfg)
+    assert r.between(0, 100).all()
+    assert r[s.nlargest(20).index].mean() > r[s.nsmallest(20).index].mean()
+
+
+def test_lecture_proprietaires():
+    from foncier.sources.proprietaires import lire_tableau
+    brut = pd.DataFrame({
+        "Département": ["34", "34", "12"], "Code Direction": ["0", "0", "0"],
+        "Code Commune": ["172", "022", "001"], "Nom Commune": ["MONTPELLIER", "BAILLARGUES", "X"],
+        "Préfixe": ["000", "", "000"], "Section": ["AB", "C", "A"], "N° plan": ["12", "345", "1"],
+        "Groupe personne": ["4", "0", "0"], "Forme juridique": ["Commune", "Société civile immobilière", "SA"],
+        "Forme juridique abrégée": ["COM", "SCI", "SA"], "Dénomination": ["COMMUNE DE MONTPELLIER", "SCI Z", "X"]})
+    df = lire_tableau(brut, ["34"])
+    assert list(df["id"]) == ["34172000AB0012", "340220000C0345"]
+    assert list(df["groupe"]) == ["4", "0"] and df["denomination"].iloc[1] == "SCI Z"
+
+
+def test_lecture_conso(tmp_path):
+    from foncier.sources import conso
+    f = tmp_path / "conso.csv"
+    f.write_text("idcom;idcomtxt;naf11art21;naf21art25\n34172;Montpellier;1000000;400000\n01001;X;10;5\n",
+                 encoding="utf-8")
+    df = conso.lire(f, ["34172"])
+    assert df.to_dict("records") == [{"insee": "34172", "m2_2011_2021": 1000000, "m2_2021_2025": 400000}]
 
 
 def test_poids_changent_le_classement(cfg, donnees):

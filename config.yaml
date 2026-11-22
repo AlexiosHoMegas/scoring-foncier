@@ -30,12 +30,26 @@ filtres:
   # Les zones bleues d'un PPR restent souvent constructibles sous conditions.
   exclure_ppr: false
 
+# Disponibilité : on écarte les terrains qui, selon les données publiques, ne sont
+# probablement pas à vendre. Aucune source ouverte ne dit si un terrain est en vente.
+disponibilite:
+  # Vendue il y a moins de N mois (DVF) : l'acheteur a sans doute un projet.
+  vendue_depuis_mois: 24
+  # Permis de construire de locaux ou permis d'aménager sur la parcelle depuis N ans (Sitadel).
+  permis_depuis_ans: 5
+  # Groupes de propriétaires exclus (fichier DGFiP des personnes morales) :
+  # 1 État, 2 Région, 3 Département, 4 Commune, 5 Office HLM, 9 Établissement public.
+  # 6 (SEM, souvent aménageurs qui vendent des lots) et 0 (sociétés) restent.
+  groupes_proprietaires_exclus: ["1", "2", "3", "4", "5", "9"]
+
 agents:
   prix:
     rayon_m: 2000
     rayon_max_m: 5000
     ventes_min: 5
     annees: 3
+    # Seules les ventes situées dans ces zones servent de comparaison (pas de terres agricoles).
+    typezones_comparables: ["U", "AUc", "AUs"]
   trafic:
     rayon_m: 300
     tmja_min: 500
@@ -57,14 +71,34 @@ agents:
   developpement:
     rayon_m: 3000
     annees: 5
+  rarete: {}
 
+robustesse:
+  tirages: 500
+  # Plus la concentration est forte, plus les poids tirés restent proches des poids choisis.
+  concentration: 40
+  top_pct: 10
+
+# Poids par défaut (profil « général »). Les autres profils se choisissent dans la carte.
 poids:
-  prix: 25
-  trafic: 20
+  prix: 22
+  trafic: 18
   accessibilite: 15
-  surface: 15
-  dynamique: 15
+  surface: 13
+  dynamique: 12
   developpement: 10
+  rarete: 10
+
+profils:
+  entrepot:
+    nom: "Entrepôt, logistique"
+    poids: { prix: 22, trafic: 15, accessibilite: 30, surface: 23, dynamique: 0, developpement: 5, rarete: 5 }
+  bureaux:
+    nom: "Bureaux"
+    poids: { prix: 15, trafic: 5, accessibilite: 25, surface: 5, dynamique: 25, developpement: 15, rarete: 10 }
+  commerce:
+    nom: "Local commercial"
+    poids: { prix: 15, trafic: 35, accessibilite: 10, surface: 10, dynamique: 20, developpement: 5, rarete: 5 }
 
 penalites:
   residentiel: 0.85
@@ -84,3 +118,10 @@ sources:
   sitadel_dataset: "689c42fa521ccf80ce954f83"
   # Fichier « autorisations d'urbanisme créant des locaux non résidentiels » (SDES, plateforme DiDo).
   sitadel_locaux_csv: "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/f8f0700f-806c-40a7-83b1-f21cf507e7c4/csv"
+  sitadel_amenager_csv: "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/96883f50-538b-41f9-a059-c6eb97e6a23a/csv"
+  # Consommation d'espaces naturels 2011-2025 par commune (Cerema), en m².
+  consoenaf: "https://www.data.gouv.fr/api/1/datasets/r/b258feec-f8ff-4e0a-93b3-baf1fe46ef66"
+  # Propriétaires personnes morales (DGFiP), portail data.economie.gouv.fr.
+  personnes_morales: "https://data.economie.gouv.fr/api/datasets/1.0/fichiers-des-locaux-et-des-parcelles-des-personnes-morales"
+  # Zonage de la publication précédente, pour repérer les parcelles devenues constructibles.
+  publication_precedente: "https://alexioshomegas.github.io/scoring-foncier/data/zonage.json"

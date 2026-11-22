@@ -13,7 +13,7 @@ import geopandas as gpd
 import pandas as pd
 
 from ..donnees import Donnees
-from . import accessibilite, developpement, dynamique, prix, surface, trafic
+from . import accessibilite, developpement, dynamique, prix, rarete, surface, trafic
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ REGISTRE = {
     "surface": surface.noter,
     "dynamique": dynamique.noter,
     "developpement": developpement.noter,
+    "rarete": rarete.noter,
 }
 
 

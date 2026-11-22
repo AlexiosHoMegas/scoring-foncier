@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-AGENTS = ["prix", "trafic", "accessibilite", "surface", "dynamique", "developpement"]
+AGENTS = ["prix", "trafic", "accessibilite", "surface", "dynamique", "developpement", "rarete"]
 
 
 def charger(chemin: str | Path) -> dict:
@@ -16,4 +16,7 @@ def charger(chemin: str | Path) -> dict:
         raise ValueError(f"Poids pour des agents inconnus : {sorted(inconnus)}")
     if sum(poids.get(a, 0) for a in AGENTS) <= 0:
         raise ValueError("La somme des poids doit être positive")
+    for nom, profil in cfg.get("profils", {}).items():
+        if set(profil["poids"]) - set(AGENTS) or sum(profil["poids"].values()) <= 0:
+            raise ValueError(f"Profil {nom} : poids invalides")
     return cfg

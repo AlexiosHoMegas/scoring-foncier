@@ -24,7 +24,9 @@ PROPRIETES = [
     "id", "commune", "surface_m2", "typezone", "libelle", "urlfic", "score",
     *[f"note_{a}" for a in AGENTS],
     "prix_m2_median", "prix_nb_ventes", "trafic_tmja", "trafic_source", "dist_echangeur_km",
-    "dist_centre_km", "croissance_pop_an_pct", "locaux_autorises_m2", "drapeaux",
+    "dist_centre_km", "croissance_pop_an_pct", "locaux_autorises_m2", "budget_zan_consomme_pct",
+    "prix_estime", "prix_estime_bas", "prix_estime_haut", "proprietaire", "forme_juridique",
+    "robustesse", "drapeaux",
 ]
 
 
@@ -51,6 +53,9 @@ def ecrire(resultat: gpd.GeoDataFrame, parcelles_total: int, exclusions: pd.Seri
         "nb_candidates": int(len(resultat)),
         "exclusions": {str(k): int(v) for k, v in exclusions.items()},
         "poids": cfg["poids"],
+        "profils": {"general": {"nom": "Général", "poids": cfg["poids"]},
+                    **{k: {"nom": v["nom"], "poids": v["poids"]} for k, v in cfg.get("profils", {}).items()}},
+        "nouvelles_constructibles": int(resultat.get("nouveau_constructible", pd.Series(dtype=bool)).sum()),
         "penalites": cfg.get("penalites", {}),
         "sources": d.sources,
         "emprise": list(map(float, g.total_bounds)) if len(g) else None,
@@ -58,6 +63,18 @@ def ecrire(resultat: gpd.GeoDataFrame, parcelles_total: int, exclusions: pd.Seri
     (sortie / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     return meta
 
+
+
+def ecrire_zonage(tout: pd.DataFrame, cfg: dict, sortie: Path) -> None:
+    """Liste des parcelles non constructibles, relue au prochain calcul pour repérer celles
+    qui le deviennent."""
+    autorisees = set(cfg["filtres"]["typezones_autorisees"])
+    non = tout[tout["typezone"].notna() & ~tout["typezone"].isin(autorisees)]
+    contenu = {
+        "date": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+        "non_constructibles": {str(t): sorted(g["id"].astype(str)) for t, g in non.groupby("typezone")},
+    }
+    (sortie / "zonage.json").write_text(json.dumps(contenu, separators=(",", ":")), encoding="utf-8")
 
 
 ECHELLE = 1_000_000  # millionième de degré, environ 10 cm

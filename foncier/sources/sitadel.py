@@ -92,3 +92,45 @@ def permis_locaux(cfg: dict, deps: list[str], parcelles: gpd.GeoDataFrame,
     df = df.dropna(subset=["geometry"])
     g = gpd.GeoDataFrame(df, geometry="geometry", crs=CRS_METRIQUE)
     return g.rename(columns={"DATE_REELLE_AUTORISATION": "date"})[["date", "surface_m2", "geometry"]]
+
+
+MOTIF_SECTION = re.compile(r"^SEC_CADASTRE(\d+)$")
+
+
+def _ids_toutes_parcelles(df: pd.DataFrame) -> set[str]:
+    """Identifiants cadastraux de toutes les parcelles citées par chaque permis (jusqu'à 25)."""
+    ids: set[str] = set()
+    for c in df.columns:
+        m = MOTIF_SECTION.match(c)
+        if not m or f"NUM_CADASTRE{m.group(1)}" not in df:
+            continue
+        sous = df[["COMM", c, f"NUM_CADASTRE{m.group(1)}"]].dropna()
+        sous = sous[sous[c].astype(str).str.strip() != ""]
+        if sous.empty:
+            continue
+        sous.columns = ["COMM", "SEC_CADASTRE1", "NUM_CADASTRE1"]
+        ids.update(_id_parcelle(sous))
+    return ids
+
+
+def parcelles_avec_permis(cfg: dict, deps: list[str]) -> set[str]:
+    """Parcelles visées par un permis de locaux ou un permis d'aménager récent."""
+    debut = f"{date.today().year - cfg.get('disponibilite', {}).get('permis_depuis_ans', 5)}-01-01"
+    urls = [cfg["sources"].get("sitadel_locaux_csv"), cfg["sources"].get("sitadel_amenager_csv")]
+    ids: set[str] = set()
+    for url in [u for u in urls if u]:
+        cols, sep = _colonnes(url)
+        if not {"DEP_CODE", "COMM", "DATE_REELLE_AUTORISATION"}.issubset(cols):
+            log.warning("Sitadel : colonnes inattendues pour %s", url)
+            continue
+        utiles = {"DEP_CODE", "COMM", "DATE_REELLE_AUTORISATION"} | {
+            c for c in cols if MOTIF_SECTION.match(c) or c.startswith("NUM_CADASTRE")}
+        for bloc in pd.read_csv(telecharger(url, ".csv"), sep=sep, dtype=str, usecols=lambda c: c in utiles,
+                                chunksize=200_000, encoding="utf-8-sig"):
+            dates = bloc["DATE_REELLE_AUTORISATION"].fillna("")
+            bloc = bloc[bloc["DEP_CODE"].isin(deps) & dates.str.match(r"^\d{4}-\d{2}") & (dates >= debut)]
+            if not bloc.empty:
+                ids |= _ids_toutes_parcelles(bloc)
+    if not ids:
+        raise ValueError("Aucun permis récent trouvé")
+    return ids

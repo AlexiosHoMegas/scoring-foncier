@@ -84,7 +84,24 @@ def appliquer(d: Donnees, cfg: dict) -> gpd.GeoDataFrame:
     p["emprise_batie"] = emprise.reindex(p.index)
     exclure(p["emprise_batie"].fillna(0) > f["emprise_batie_max"], "déjà bâtie")
 
-    # 7. Risques naturels : périmètre de PPR.
+    # 7. Disponibilité probable.
+    dispo = cfg.get("disponibilite", {})
+    if not d.proprietaires.empty:
+        proprio = d.proprietaires.set_index("id")
+        p["proprietaire"] = p["id"].map(proprio["denomination"])
+        p["forme_juridique"] = p["id"].map(proprio["forme"])
+        groupe = p["id"].map(proprio["groupe"])
+        exclure(groupe.isin([str(g) for g in dispo.get("groupes_proprietaires_exclus", [])]),
+                "propriété publique")
+        # Absente du fichier des personnes morales : particulier ou entreprise individuelle.
+        p.loc[groupe.isna(), "proprietaire"] = "Particulier ou entreprise individuelle"
+    if len(d.parcelles_vendues):
+        p["vendue_le"] = p["id"].map(d.parcelles_vendues)
+        exclure(p["vendue_le"].notna(), "vendue récemment")
+    if d.parcelles_permis:
+        exclure(p["id"].isin(d.parcelles_permis), "projet en cours (permis)")
+
+    # 8. Risques naturels : périmètre de PPR.
     ppr = pd.Series(False, index=p.index)
     if not d.ppr.empty:
         a = p.loc[actives(), ["geometry"]]
@@ -99,5 +116,12 @@ def appliquer(d: Donnees, cfg: dict) -> gpd.GeoDataFrame:
         p.at[i, "drapeaux"].append("zone résidentielle")
     for i in p.index[p["ppr"]]:
         p.at[i, "drapeaux"].append("périmètre PPR")
+
+    # Parcelles devenues constructibles depuis la publication précédente.
+    anciens = {i for ids in d.zonage_precedent.values() for i in ids}
+    p["nouveau_constructible"] = p["id"].isin(anciens) & p["typezone"].isin(f["typezones_autorisees"])
+    for i in p.index[p["nouveau_constructible"] & actives()]:
+        p.at[i, "drapeaux"].append("devenue constructible")
+    log.info("Parcelles devenues constructibles : %d", int(p["nouveau_constructible"].sum()))
     log.info("Candidates retenues : %d / %d", int(actives().sum()), len(p))
     return p

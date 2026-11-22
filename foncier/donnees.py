@@ -33,6 +33,14 @@ class Donnees:
     population: pd.DataFrame = field(default_factory=pd.DataFrame)      # insee, pop_recente, pop_ancienne, ecart_annees
     permis: gpd.GeoDataFrame = field(default_factory=gdf_vide)          # date, surface_m2
     centre: gpd.GeoDataFrame = field(default_factory=gdf_vide)
+    # Disponibilité et propriété.
+    proprietaires: pd.DataFrame = field(default_factory=pd.DataFrame)   # id, groupe, forme, denomination
+    parcelles_vendues: pd.Series = field(default_factory=lambda: pd.Series(dtype=str))  # id -> date
+    parcelles_permis: set = field(default_factory=set)                  # ids avec permis récent
+    # Rareté foncière (consommation d'espaces), par commune.
+    conso: pd.DataFrame = field(default_factory=pd.DataFrame)           # insee, m2_2011_2021, m2_2021_2025
+    # Zonage publié la semaine précédente : typezone -> liste d'ids non constructibles.
+    zonage_precedent: dict = field(default_factory=dict)
     # Suivi : état de chaque source, affiché dans la carte.
     sources: dict = field(default_factory=dict)
     demo: bool = False

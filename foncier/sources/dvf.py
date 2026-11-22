@@ -38,7 +38,9 @@ def _fichiers(cfg: dict, annees: list[int]) -> list[str]:
     return [cfg["sources"]["dvf_secours"]]
 
 
-def ventes_terrains(cfg: dict, deps: list[str]) -> gpd.GeoDataFrame:
+def ventes_terrains(cfg: dict, deps: list[str]) -> tuple[gpd.GeoDataFrame, pd.Series]:
+    """Renvoie les ventes de terrains nus (points, prix au m²) et la date de dernière vente
+    de chaque parcelle vendue récemment, quel que soit le type de bien."""
     n = cfg["agents"]["prix"]["annees"]
     aujourd_hui = date.today()
     annees = list(range(aujourd_hui.year - n, aujourd_hui.year + 1))
@@ -58,6 +60,11 @@ def ventes_terrains(cfg: dict, deps: list[str]) -> gpd.GeoDataFrame:
     for c in ("valeur_fonciere", "surface_terrain", "longitude", "latitude"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    mois = cfg.get("disponibilite", {}).get("vendue_depuis_mois", 24)
+    limite = (pd.Timestamp(aujourd_hui) - pd.DateOffset(months=mois)).strftime("%Y-%m-%d")
+    recentes = df[df["date_mutation"] >= limite].dropna(subset=["id_parcelle"])
+    vendues = recentes.groupby("id_parcelle")["date_mutation"].max()
+
     # Une mutation = une vente. On garde les ventes sans aucun local (terrain nu).
     bati = df.groupby("id_mutation")["type_local"].apply(lambda s: s.notna().any())
     df = df[df["id_mutation"].isin(bati[~bati].index)]
@@ -74,4 +81,4 @@ def ventes_terrains(cfg: dict, deps: list[str]) -> gpd.GeoDataFrame:
     ventes = ventes[(ventes["prix_m2"] >= 1) & (ventes["prix_m2"] <= 3000)]
     g = gpd.GeoDataFrame(ventes.reset_index(), geometry=gpd.points_from_xy(ventes["lon"], ventes["lat"]),
                          crs=CRS_WEB).to_crs(CRS_METRIQUE)
-    return g[["id_mutation", "date", "prix_m2", "surface", "geometry"]]
+    return g[["id_mutation", "date", "prix_m2", "surface", "geometry"]], vendues
