@@ -123,14 +123,17 @@ def test_poids_changent_le_classement(cfg, donnees):
 def test_execution_demo(cfg, tmp_path):
     meta = run.executer(cfg, tmp_path, mode_demo=True)
     assert meta["demo"] is True and meta["nb_candidates"] > 0
-    fc = json.loads((tmp_path / "parcelles.geojson").read_text(encoding="utf-8"))
-    assert len(fc["features"]) == meta["nb_candidates"]
-    p = fc["features"][0]["properties"]
-    for cle in ["id", "score", "classe", "surface_m2", *[f"note_{a}" for a in config.AGENTS]]:
-        assert cle in p
-    lon, lat = fc["features"][0]["geometry"]["coordinates"][0][0]
+    c = json.loads((tmp_path / "parcelles.json").read_text(encoding="utf-8"))
+    assert c["n"] == meta["nb_candidates"] == len(c["geometries"])
+    for cle in ["id", "score", "surface_m2", *[f"note_{a}" for a in config.AGENTS]]:
+        assert len(c["colonnes"][cle]) == c["n"]
+    # Décodage identique à celui de la carte : premier point d'un anneau, puis écarts.
+    anneau = c["geometries"][0][0][0]
+    lon, lat = anneau[0] / c["echelle"], anneau[1] / c["echelle"]
     assert 2 < lon < 5 and 42 < lat < 45  # autour de Montpellier, en WGS84
-    scores = [f["properties"]["score"] for f in fc["features"]]
+    xs = np.cumsum(anneau[0::2]) / c["echelle"]
+    assert xs.max() - xs.min() < 0.01  # une parcelle fait moins d'un kilomètre
+    scores = c["colonnes"]["score"]
     assert scores == sorted(scores, reverse=True)
 
 
