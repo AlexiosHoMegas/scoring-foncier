@@ -2,9 +2,11 @@
 # Toutes les valeurs sont modifiables ; le pipeline les relit à chaque exécution.
 
 territoire:
-  nom: "Montpellier Méditerranée Métropole"
-  # EPCI couverts (code SIREN). 243400017 = Montpellier Méditerranée Métropole (31 communes).
-  epcis: ["243400017"]
+  nom: "Montpellier et Grand Pic Saint-Loup"
+  # EPCI couverts (code SIREN) :
+  # 243400017 = Montpellier Méditerranée Métropole (31 communes)
+  # 200022986 = Communauté de communes du Grand Pic Saint-Loup (Saint-Clément-de-Rivière, etc.)
+  epcis: ["243400017", "200022986"]
   # Communes ajoutées hors EPCI (codes INSEE), par exemple pour la couronne.
   communes_supplementaires: []
   # Point de référence pour la distance au centre (Place de la Comédie).
